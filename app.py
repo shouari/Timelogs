@@ -2,13 +2,12 @@ import streamlit as st
 import pandas as pd
 import googlemaps
 from datetime import datetime, timedelta
-import json
+import json, os
+from dotenv import load_dotenv
 
 # === CONFIGURATION ===
-with open("config.json") as f:
-    config = json.load(f)
-gmaps = googlemaps.Client(key=config["google_maps_api_key"])
-
+load_dotenv()
+API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 # === DONNÉES TECHNICIENS ===
 with open("techniciens.json") as f:
     techniciens = json.load(f)
