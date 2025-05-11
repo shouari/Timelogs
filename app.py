@@ -2,15 +2,16 @@ import streamlit as st
 import pandas as pd
 import googlemaps
 from datetime import datetime, timedelta
-import json, os
+import json
+import os
 from dotenv import load_dotenv
 
-# === CONFIGURATION ===
+# === CHARGER LA CLÉ API DEPUIS .env ===
 load_dotenv()
-API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+google_maps_api_key = os.getenv("GOOGLE_MAPS_API_KEY")
+gmaps = googlemaps.Client(key=google_maps_api_key)
 
-gmaps = googlemaps.Client(key=API_KEY)
-# === DONNÉES TECHNICIENS ===
+# === CHARGER LES DONNÉES TECHNICIENS & PROJETS ===
 with open("techniciens.json") as f:
     techniciens = json.load(f)
 tech_names = [t["name"] for t in techniciens]
@@ -19,7 +20,7 @@ with open("projets.json") as f:
     projets = json.load(f)
 project_names = [p["name"] for p in projets]
 
-# === FONCTIONS ===
+# === OUTILS ===
 def get_distance_km(origin, destination):
     try:
         result = gmaps.distance_matrix(origin, destination, mode="driving")
@@ -29,26 +30,29 @@ def get_distance_km(origin, destination):
         return None
 
 def get_tech_address(name):
-    for t in techniciens:
-        if t["name"] == name:
-            return t["home_address"]
-    return None
+    return next((t["home_address"] for t in techniciens if t["name"] == name), None)
+
 def get_project_address(name):
-    for p in projets:
-        if p["name"] == name:
-            return p["address"]
-    return None
+    return next((p["address"] for p in projets if p["name"] == name), None)
 
+# === INIT SESSION ===
+if "weekly_results" not in st.session_state:
+    st.session_state["weekly_results"] = []
 
-# === INTERFACE ===
-st.title("Calcul Hebdomadaire du Transport à Compenser (par Projet)")
+# === SIDEBAR : VIDER LE TABLEAU ===
+st.sidebar.title("Options")
+if st.sidebar.button("🧹 Vider le tableau des résultats"):
+    st.session_state["weekly_results"] = []
+    st.rerun()
 
-# Sélection d'une date dans le calendrier
-selected_date = st.date_input("Sélectionnez une date dans la semaine souhaitée :", value=datetime.today())
-start_date = selected_date - timedelta(days=selected_date.weekday())  # ramène au lundi
-dates_semaine = [start_date + timedelta(days=i) for i in range(5)]
+# === INTERFACE PRINCIPALE ===
+st.title("🚌 Calcul Hebdomadaire du Transport à Compenser")
+
+# Semaine sélectionnée
+selected_date = st.date_input("📅 Choisissez une date de la semaine : ", value=datetime.today())
+start_date = selected_date - timedelta(days=selected_date.weekday())
 jours = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"]
-weekly_results = []
+dates_semaine = [start_date + timedelta(days=i) for i in range(5)]
 
 for i, jour in enumerate(jours):
     date_jour = dates_semaine[i]
@@ -66,34 +70,32 @@ for i, jour in enumerate(jours):
                 projet_soir = st.selectbox("Projet soir", project_names, key=f"{jour}_soir_proj_{j}")
                 addr_soir = get_project_address(projet_soir)
 
-            if tech and addr_matin and addr_soir:
-                home = get_tech_address(tech)
-                dist_matin = get_distance_km(home, addr_matin)
-                dist_soir = get_distance_km(addr_soir, home)
+            # Ajouter ce trajet manuellement
+            if st.button("✅ Ajouter ce trajet", key=f"{jour}_{j}_add"):
+                if tech and addr_matin and addr_soir:
+                    home = get_tech_address(tech)
+                    dist_matin = get_distance_km(home, addr_matin)
+                    dist_soir = get_distance_km(addr_soir, home)
 
-                comp_matin = max(0, dist_matin - 40) if dist_matin else 0
-                comp_soir = max(0, dist_soir - 40) if dist_soir else 0
-                total_comp = round(comp_matin + comp_soir, 2)
+                    comp_matin = max(0, dist_matin - 40) if dist_matin else 0
+                    comp_soir = max(0, dist_soir - 40) if dist_soir else 0
+                    total_comp = round(comp_matin + comp_soir, 2)
 
-                st.markdown(
-                    f"**{tech}** – Matin: {dist_matin} km, Soir: {dist_soir} km  "
-                    f"**→ Km à compenser:** {total_comp} km"
-                )
+                    st.session_state["weekly_results"].append({
+                        "Date": date_jour.strftime('%Y-%m-%d'),
+                        "Technicien": tech,
+                        "Projet Matin": projet_matin,
+                        "Projet Soir": projet_soir,
+                        "Adresse Matin": addr_matin,
+                        "Adresse Soir": addr_soir,
+                        "Distance Matin (km)": dist_matin,
+                        "Distance Soir (km)": dist_soir,
+                        "Km à Compenser": total_comp
+                    })
+                    st.success(f"✅ Trajet ajouté pour {tech} le {jour}.")
 
-                weekly_results.append({
-                    "Date": date_jour.strftime('%Y-%m-%d'),
-                    "Technicien": tech,
-                    "Projet Matin": projet_matin,
-                    "Projet Soir": projet_soir,
-                    "Adresse Matin": addr_matin,
-                    "Adresse Soir": addr_soir,
-                    "Distance Matin (km)": dist_matin,
-                    "Distance Soir (km)": dist_soir,
-                    "Km à Compenser": total_comp
-                })
-
-# AFFICHAGE RÉCAPITULATIF
-if weekly_results:
-    df_results = pd.DataFrame(weekly_results)
-    st.subheader("Récapitulatif Hebdomadaire")
-    st.dataframe(df_results, use_container_width=True)
+# === RÉCAPITULATIF HEBDOMADAIRE ===
+if st.session_state["weekly_results"]:
+    df = pd.DataFrame(st.session_state["weekly_results"])
+    st.subheader("📋 Récapitulatif de la semaine")
+    st.dataframe(df, use_container_width=True)
