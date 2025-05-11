@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 # === CONFIGURATION ===
 load_dotenv()
 API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+
+gmaps = googlemaps.Client(key=API_KEY)
 # === DONNÉES TECHNICIENS ===
 with open("techniciens.json") as f:
     techniciens = json.load(f)
